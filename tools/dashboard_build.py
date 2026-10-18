@@ -17,6 +17,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,6 +33,7 @@ DATA_DIR = ROOT / "user_data" / "data" / "gate"
 BT_DIR = ROOT / "user_data" / "backtest_results"
 DB = ROOT / "tradesv3.dryrun.sqlite"
 LOG = ROOT / "user_data" / "logs" / "trade.log"
+JOB = ROOT / "user_data" / "logs" / "dashboard_job.json"
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -40,7 +42,7 @@ NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 # ---------------------------------------------------------------- 数据采集 --
 def read_json(p, default=None):
     try:
-        return json.loads(Path(p).read_text(encoding="utf-8"))
+        return json.loads(Path(p).read_text(encoding="utf-8-sig"))
     except Exception:
         return default
 
@@ -280,6 +282,7 @@ footer{margin-top:22px;font-size:12px}
   <h1>⚡ CyberSPACE 量化控制台</h1>
   <span class="pill" id="botPill"></span>
   <span class="muted" style="font-size:12.5px">生成于 <span id="builtAt"></span> · 每 5 秒自动刷新</span>
+  <span class="pill" id="jobPill" style="display:none;border-color:#6a5320"></span>
   <span style="flex:1"></span>
   <button class="btn" id="pauseBtn">⏸ 暂停刷新</button>
 </header>
@@ -287,7 +290,7 @@ footer{margin-top:22px;font-size:12px}
 <div class="cards" id="cards"></div>
 
 <section class="card">
-  <h3>🎛️ 操作台 <span class="muted" style="font-weight:400">— 点「复制」，再到『CyberSPACE 操作窗口』粘贴 + 回车即可</span></h3>
+  <h3>🎛️ 操作台 <span class="muted" style="font-weight:400" id="opsHint"></span></h3>
   <div id="ops"></div>
 </section>
 
@@ -341,8 +344,8 @@ const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<"
 function fdur(m){ if(m==null) return "—"; m=Math.round(m); if(m<60) return m+" 分钟"; return Math.floor(m/60)+" 小时 "+(m%60)+" 分"; }
 const LS = { get(k){ try{ return localStorage.getItem(k) }catch(e){ return null } },
              set(k,v){ try{ localStorage.setItem(k,v) }catch(e){} } };
-function copyText(txt, btn){
-  const done = () => { const o=btn.textContent; btn.textContent="已复制 ✓"; setTimeout(()=>btn.textContent=o,1200); };
+function copyText(txt, btn, doneLabel){
+  const done = () => { const o=btn.textContent; btn.textContent=doneLabel||"已复制 ✓"; setTimeout(()=>btn.textContent=o,1200); };
   const fb = () => {
     const ta=document.createElement("textarea"); ta.value=txt; ta.style.position="fixed"; ta.style.opacity="0";
     document.body.appendChild(ta); ta.select(); let ok=false;
@@ -361,6 +364,11 @@ function renderStatus(){
     ? '<span class="dot on"></span> 机器人运行中' + (b.pid ? ' · PID '+esc(b.pid) : '')
     : '<span class="dot"></span> 机器人已停止';
   $("#builtAt").textContent = DATA.built_at || "";
+  const job = DATA.job, jp = $("#jobPill");
+  if (job && job.label) {
+    jp.style.display = "inline-flex";
+    jp.innerHTML = '<span class="dot" style="background:#d29922;box-shadow:0 0 9px #d29922"></span><span class="amber">正在运行：' + esc(job.label) + '（' + esc(job.started||"") + ' 开始）</span>';
+  }
 }
 function renderCards(){
   const c = DATA.config||{}, d = DATA.dryrun||{}, df = DATA.data_files||[], bts = DATA.backtests||[];
@@ -408,15 +416,20 @@ function renderOps(){
     ["🛑 强制停止机器人（应急）", "taskkill /IM freqtrade.exe /F", "正常请优先用 Ctrl+C"],
     ["♻ 重新生成本页（单次）", ".\\scripts\\dashboard.ps1 -Once", ""],
   ];
+  $("#opsHint").textContent = DATA.autorun
+    ? "— 点「▶ 运行」自动执行（命令同时复制到剪贴板，由 dashboard.ps1 窗口执行）"
+    : "— 点「复制」，再到『CyberSPACE 操作窗口』粘贴 + 回车执行";
+  const runLabel = DATA.autorun ? "▶ 运行" : "复制";
+  const doneLabel = DATA.autorun ? "已触发 ✓" : "已复制 ✓";
   $("#ops").innerHTML = ops.map(([lbl,cmd,hint],i)=>`
     <div class="ops">
       <span class="lbl">${esc(lbl)}</span>
       <code>${esc(cmd)}</code>
-      <button class="btn" data-i="${i}">复制</button>
+      <button class="btn" data-i="${i}">${runLabel}</button>
       ${hint?`<span class="muted" style="font-size:12px">${esc(hint)}</span>`:""}
     </div>`).join("");
   document.querySelectorAll("#ops .btn").forEach(b=>{
-    b.onclick = () => copyText(ops[+b.dataset.i][1], b);
+    b.onclick = () => copyText(ops[+b.dataset.i][1], b, doneLabel);
   });
 }
 
@@ -590,10 +603,25 @@ addEventListener("resize", ()=>{ clearTimeout(window.__rz); window.__rz=setTimeo
 
 
 # ------------------------------------------------------------------- 主流程 --
+def autorun_flag():
+    argv = sys.argv[1:]
+    if "--autorun" in argv:
+        try:
+            return argv[argv.index("--autorun") + 1] not in ("0", "false", "False", "no")
+        except IndexError:
+            pass
+    return True
+
+
 def main():
     cfg = read_json(ROOT / "config.json", {}) or {}
     ex = cfg.get("exchange") or {}
     wallet = cfg.get("dry_run_wallet") or 1000
+    job = read_json(JOB, None)
+    if not (isinstance(job, dict) and job.get("label")):
+        job = None
+    elif JOB.exists() and (time.time() - JOB.stat().st_mtime) > 6 * 3600:
+        job = None  # 超过 6 小时的残留状态，视为无效
     payload = {
         "built_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "bot": bot_status(),
@@ -610,6 +638,8 @@ def main():
         "backtests": backtests(),
         "dryrun": dryrun(float(wallet)),
         "logs": log_tail(),
+        "autorun": autorun_flag(),
+        "job": job,
     }
     js = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     js = js.replace("</", "<\\/")  # 防止数据中出现 </script>

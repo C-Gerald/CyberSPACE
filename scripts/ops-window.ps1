@@ -10,7 +10,8 @@ Write-Host ''
 Write-Host '  ⚡ CyberSPACE 操作窗口' -ForegroundColor Cyan
 Write-Host '  --------------------------------------------------------------'
 Write-Host ''
-Write-Host '  用法：在控制台网页上点「复制」，回到本窗口粘贴（Ctrl+V），回车执行。' -ForegroundColor Gray
+Write-Host '  说明：控制台默认已开启「一键运行」（点网页按钮自动执行）；' -ForegroundColor Gray
+Write-Host '  本窗口是备用入口：点网页「复制」后回到这里粘贴（Ctrl+V），回车执行。' -ForegroundColor Gray
 Write-Host ''
 Write-Host '    启动模拟盘   .\scripts\dry-run.ps1                 （停止：Ctrl+C）' -ForegroundColor White
 Write-Host '    运行回测     .\scripts\backtest.ps1                （15 分钟周期：加 -Timeframe 15m）' -ForegroundColor White

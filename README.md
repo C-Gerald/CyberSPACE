@@ -55,7 +55,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 .\scripts\download-data.ps1   # 下载 / 增量更新数据（可反复运行）
 .\scripts\backtest.ps1        # 回测默认 5m（约 25 天数据）
 .\scripts\dry-run.ps1         # 启动模拟盘（Ctrl+C 停止）
-.\scripts\dashboard.ps1       # 可视化控制台（状态 / 图表 / 日志 + 操作窗口）
+.\scripts\dashboard.ps1       # 可视化控制台（状态 / 图表 / 日志 / 一键运行）
 ```
 
 ## 🖥️ 可视化控制台（dashboard）
@@ -67,10 +67,14 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
 - 自动生成 `dashboard.html` 并用浏览器打开，**每 5 秒自动刷新**（右上角可「暂停刷新」）。
-- 同时会自动打开一个『CyberSPACE 操作窗口』：控制台网页上点「复制」的命令，到那个窗口粘贴 + 回车即可执行。
+- **一键运行**：点网页上的「▶ 运行」按钮，脚本直接自动执行（跑回测、更新数据、启动模拟盘……点一下就行）。
+  - 原理：本机回环 TCP 被拦（见「Windows 兼容补丁」），做不了本地服务器；于是改为——按钮把命令复制到剪贴板，`dashboard.ps1` 窗口监听剪贴板并自动执行。**只认内置的那几条命令**，其它剪贴板内容一律忽略。
+  - 安全细节：同一条命令 120 秒内不重复执行；「启动模拟盘」在已有机器人运行时会被拒绝（防止双开同一个数据库）；执行期间控制台顶部显示「⏳ 正在运行」横幅。
+- 不想要自动执行：`.\scripts\dashboard.ps1 -NoAutoRun`（按钮变为「复制」，到「操作窗口」粘贴 + 回车即可）。
+- 同时会自动打开一个『CyberSPACE 操作窗口』（手动执行 / 查看输出的备用入口）。
 - 只要一次性快照（不持续刷新）：`.\scripts\dashboard.ps1 -Once`。
-- 停止刷新：在运行 `dashboard.ps1` 的窗口按 `Ctrl+C`（浏览器里已打开的页面不受影响）。
-- 实现说明：本机代理 / 安全软件会拦截环回 TCP（见「Windows 兼容补丁」一节），因此控制台**不依赖本地网络端口**，采用「静态生成 + 定时刷新」——无需常驻服务，也不会被拦截。
+- 停止控制台：在运行 `dashboard.ps1` 的窗口按 `Ctrl+C`（浏览器里已打开的页面不受影响）。
+- 实现说明：控制台**不依赖本地网络端口**，采用「静态生成 + 定时刷新 + 剪贴板监听」——无需常驻服务，也不会被拦截。
 
 ## 从零部署（新机器 / 克隆本仓库后）
 
@@ -196,8 +200,9 @@ Copy-Item compat\sitecustomize.py .venv\Lib\site-packages\sitecustomize.py -Forc
 .\scripts\dry-run.ps1                   # Ctrl+C 停止（日志同时写入 user_data/logs/trade.log）
 
 # 可视化控制台
-.\scripts\dashboard.ps1                 # 生成 + 打开浏览器 + 每 5 秒自动刷新
+.\scripts\dashboard.ps1                 # 生成 + 打开浏览器 + 每 5 秒自动刷新 + 一键运行
 .\scripts\dashboard.ps1 -Once           # 只生成并打开一次
+.\scripts\dashboard.ps1 -NoAutoRun      # 关闭「一键运行」（按钮只复制命令）
 ```
 
 > PowerShell 5.1 中文乱码：先执行 `chcp 65001`；`.ps1` 脚本请保持 **UTF-8 带 BOM** 保存。
@@ -215,6 +220,7 @@ Copy-Item compat\sitecustomize.py .venv\Lib\site-packages\sitecustomize.py -Forc
 | 数据缺失 / 下载不全 | 重跑 `.\scripts\download-data.ps1`（增量更新）；想彻底重下先删除 `user_data/data/gate/` 下对应文件 |
 | 控制台页面不自动刷新 / 图表空白 | 确认运行 `dashboard.ps1` 的窗口还开着（刷新由它驱动）；重新运行 `.\scripts\dashboard.ps1` 即可 |
 | 控制台「运行日志」停在旧时间 | 日志读取 `user_data\logs\trade.log`；机器人需由 `scripts\dry-run.ps1` 启动（会持续写入）。旧实例重启后生效 |
+| 点「运行」没反应 | ① 确认是用 `dashboard.ps1`（实时模式）打开的——`-Once` / `-NoAutoRun` 下按钮只复制命令；② 到「操作窗口」粘贴 + 回车即可手动执行 |
 | 想换 Binance | 本机直连不通；可改用公共数据站 `data.binance.vision` 直连下载 |
 
 ### 脚本被执行策略拦截（报错「因为在此系统上禁止运行脚本」）
