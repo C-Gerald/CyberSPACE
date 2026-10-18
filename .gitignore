@@ -22,3 +22,6 @@ user_data/models/
 *.sqlite-shm
 *.sqlite-wal
 *.log
+
+# 本地控制台（自动生成的产物）
+dashboard.html

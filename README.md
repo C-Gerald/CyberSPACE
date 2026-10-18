@@ -15,6 +15,7 @@
 - [x] 历史数据下载就绪：BTC/ETH × 5m / 15m / 1h
 - [x] 示例策略 `EmaCrossStrategy` + 一键脚本全流程跑通（下载 → 回测）
 - [x] dry-run 模拟盘冒烟测试通过（RUNNING + heartbeat 正常）
+- [x] 本地可视化控制台 `dashboard.html`（一键生成：状态 / 钱包 / 回测图表 / 日志）
 - [ ] 策略验证过关 → 小资金实盘
 
 ## 目录结构
@@ -23,12 +24,17 @@
 CyberSPACE/
 ├─ config.example.json      # 配置模板（复制为 config.json 后使用；config.json 不入库）
 ├─ requirements.txt         # Python 依赖（freqtrade==2026.9、py-spy）
+├─ dashboard.html           # 可视化控制台（运行 scripts\dashboard.ps1 自动生成，不入库）
 ├─ compat/
 │  └─ sitecustomize.py      # Windows「回环 socketpair 卡死」兼容补丁（见下文）
 ├─ scripts/
 │  ├─ download-data.ps1     # 一键下载 / 增量更新历史数据
 │  ├─ backtest.ps1          # 一键回测（支持 -Timeframe 5m|15m|1h）
-│  └─ dry-run.ps1           # 一键启动模拟盘（Ctrl+C 停止）
+│  ├─ dry-run.ps1           # 一键启动模拟盘（Ctrl+C 停止）
+│  ├─ dashboard.ps1         # 一键打开可视化控制台（生成 + 自动刷新 + 操作窗口）
+│  └─ ops-window.ps1        # 「操作窗口」：粘贴控制台网页上复制的命令
+├─ tools/
+│  └─ dashboard_build.py    # 控制台生成器（读取项目数据 → dashboard.html）
 └─ user_data/
    ├─ strategies/
    │  └─ EmaCrossStrategy.py    # 示例策略：EMA 金叉死叉 + RSI 过滤
@@ -49,7 +55,22 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 .\scripts\download-data.ps1   # 下载 / 增量更新数据（可反复运行）
 .\scripts\backtest.ps1        # 回测默认 5m（约 25 天数据）
 .\scripts\dry-run.ps1         # 启动模拟盘（Ctrl+C 停止）
+.\scripts\dashboard.ps1       # 可视化控制台（状态 / 图表 / 日志 + 操作窗口）
 ```
+
+## 🖥️ 可视化控制台（dashboard）
+
+一条命令打开本地数据面板（机器人状态 / 模拟钱包 / 回测曲线 / 交易明细 / 数据覆盖 / 运行日志）：
+
+```powershell
+.\scripts\dashboard.ps1
+```
+
+- 自动生成 `dashboard.html` 并用浏览器打开，**每 5 秒自动刷新**（右上角可「暂停刷新」）。
+- 同时会自动打开一个『CyberSPACE 操作窗口』：控制台网页上点「复制」的命令，到那个窗口粘贴 + 回车即可执行。
+- 只要一次性快照（不持续刷新）：`.\scripts\dashboard.ps1 -Once`。
+- 停止刷新：在运行 `dashboard.ps1` 的窗口按 `Ctrl+C`（浏览器里已打开的页面不受影响）。
+- 实现说明：本机代理 / 安全软件会拦截环回 TCP（见「Windows 兼容补丁」一节），因此控制台**不依赖本地网络端口**，采用「静态生成 + 定时刷新」——无需常驻服务，也不会被拦截。
 
 ## 从零部署（新机器 / 克隆本仓库后）
 
@@ -172,7 +193,11 @@ Copy-Item compat\sitecustomize.py .venv\Lib\site-packages\sitecustomize.py -Forc
 .\.venv\Scripts\freqtrade.exe backtesting-show --config config.json   # 查看上次回测明细
 
 # 模拟盘
-.\scripts\dry-run.ps1                   # Ctrl+C 停止
+.\scripts\dry-run.ps1                   # Ctrl+C 停止（日志同时写入 user_data/logs/trade.log）
+
+# 可视化控制台
+.\scripts\dashboard.ps1                 # 生成 + 打开浏览器 + 每 5 秒自动刷新
+.\scripts\dashboard.ps1 -Once           # 只生成并打开一次
 ```
 
 > PowerShell 5.1 中文乱码：先执行 `chcp 65001`；`.ps1` 脚本请保持 **UTF-8 带 BOM** 保存。
@@ -188,6 +213,8 @@ Copy-Item compat\sitecustomize.py .venv\Lib\site-packages\sitecustomize.py -Forc
 | 控制台中文乱码 | `chcp 65001`；`.ps1` 文件保存为 UTF-8 BOM |
 | CoinGecko 汇率接口报错 | `config.json` 中 `fiat_display_currency` 置 `""` |
 | 数据缺失 / 下载不全 | 重跑 `.\scripts\download-data.ps1`（增量更新）；想彻底重下先删除 `user_data/data/gate/` 下对应文件 |
+| 控制台页面不自动刷新 / 图表空白 | 确认运行 `dashboard.ps1` 的窗口还开着（刷新由它驱动）；重新运行 `.\scripts\dashboard.ps1` 即可 |
+| 控制台「运行日志」停在旧时间 | 日志读取 `user_data\logs\trade.log`；机器人需由 `scripts\dry-run.ps1` 启动（会持续写入）。旧实例重启后生效 |
 | 想换 Binance | 本机直连不通；可改用公共数据站 `data.binance.vision` 直连下载 |
 
 ### 脚本被执行策略拦截（报错「因为在此系统上禁止运行脚本」）
@@ -236,7 +263,8 @@ git push            # 推送到 https://github.com/C-Gerald/CyberSPACE
 - [ ] hyperopt 参数优化（目标函数同样含手续费）
 - [ ] 扩充交易对（Gate 现货中流动性好的标的）
 - [ ] dry-run 长跑观察 + 交易复盘
-- [ ] （可选）Telegram 通知 / 简易监控面板
+- [x] 本地监控面板：`dashboard.html`（一键生成、自动刷新、内置操作台）
+- [ ] （可选）Telegram 通知
 
 ---
 

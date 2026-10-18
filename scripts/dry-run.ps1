@@ -11,5 +11,6 @@ $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
 Set-Location (Join-Path $PSScriptRoot '..')
 
-& './.venv/Scripts/freqtrade.exe' trade --config config.json --strategy EmaCrossStrategy
+# 日志同时写入 user_data/logs/trade.log（控制台仪表盘的“运行日志”框读取它）
+& './.venv/Scripts/freqtrade.exe' trade --config config.json --strategy EmaCrossStrategy --logfile user_data/logs/trade.log
 exit $LASTEXITCODE
