@@ -42,8 +42,9 @@ CyberSPACE/
 在项目根目录打开 PowerShell：
 
 ```powershell
-# 脚本已按 UTF-8 准备；如被执行策略拦截，先放行当前窗口
-Set-ExecutionPolicy -Scope Process Bypass
+# 首次使用如提示「禁止运行脚本」（Windows 默认策略），先一次性放行
+# （原因、撤销方法与替代方案见「故障排查」一节）
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 .\scripts\download-data.ps1   # 下载 / 增量更新数据（可反复运行）
 .\scripts\backtest.ps1        # 回测默认 5m（约 25 天数据）
@@ -74,7 +75,13 @@ Copy-Item compat\sitecustomize.py .venv\Lib\site-packages\sitecustomize.py -Forc
 Copy-Item config.example.json config.json
 ```
 
-5. 下载数据 → 回测 → 模拟盘：
+5. 【首次运行脚本前】如提示「禁止运行脚本」，先一次性放行（原因与撤销方法见「故障排查」）：
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+6. 下载数据 → 回测 → 模拟盘：
 
 ```powershell
 .\scripts\download-data.ps1
@@ -175,12 +182,42 @@ Copy-Item compat\sitecustomize.py .venv\Lib\site-packages\sitecustomize.py -Forc
 
 | 现象 | 处理 |
 |------|------|
+| 运行 `.ps1` 提示「因为在此系统上禁止运行脚本」(PSSecurityException) | Windows 默认策略拦截，一次性放行：`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`（详见下方小节） |
 | 启动卡死 / 低 CPU 空转 | 部署 `sitecustomize.py` 补丁 + 杀软信任区（见上文） |
 | `Fatal error in launcher: Unable to create process ...` | venv 被移动过，重建启动器：`.\.venv\Scripts\python.exe -m pip install --force-reinstall --no-deps freqtrade py-spy` |
 | 控制台中文乱码 | `chcp 65001`；`.ps1` 文件保存为 UTF-8 BOM |
 | CoinGecko 汇率接口报错 | `config.json` 中 `fiat_display_currency` 置 `""` |
 | 数据缺失 / 下载不全 | 重跑 `.\scripts\download-data.ps1`（增量更新）；想彻底重下先删除 `user_data/data/gate/` 下对应文件 |
 | 想换 Binance | 本机直连不通；可改用公共数据站 `data.binance.vision` 直连下载 |
+
+### 脚本被执行策略拦截（报错「因为在此系统上禁止运行脚本」）
+
+Windows PowerShell 的**默认执行策略是 `Restricted`**——默认禁止运行一切 `.ps1` 脚本。这是 Windows 的安全默认值，与项目本身无关。报错特征：`PSSecurityException` / `UnauthorizedAccess` /「因为在此系统上禁止运行脚本」。
+
+**一次性解决（推荐）**：仅对你的用户生效、无需管理员权限、随时可撤销：
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+- 含义：本地脚本放行；从网上下载的脚本仍然需要数字签名（保留安全底线）。这是微软官方推荐的常规设置。
+- 设置完成后即可直接运行脚本；如果某个**已经打开**的窗口仍报错，关掉它、重新开一个新窗口即可。
+- **撤销 / 恢复系统默认**：
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser Undefined
+```
+
+**不想改动任何系统设置的替代方式**：
+
+```powershell
+# 方式 1：仅对当前窗口临时放行（关闭窗口即失效）
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\dry-run.ps1
+
+# 方式 2：用启动参数直接运行（不更改任何策略设置）
+powershell -ExecutionPolicy Bypass -File .\scripts\dry-run.ps1
+```
 
 ## 版本管理（git）
 
